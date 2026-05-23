@@ -1,0 +1,42 @@
+# Datadog Agent log-pipeline reference for crawler access logs.
+#
+# ── PITFALL THIS CONFIG DELIBERATELY AVOIDS ─────────────────────────────────
+# Datadog `log_processing_rules` use Go's RE2 engine, which has NO lookahead /
+# lookbehind. A pattern like `(?!10\.)` will fail to compile. To DROP lines
+# (e.g. internal/private IPs) use `type: exclude_at_match` with a PLAIN pattern;
+# to KEEP only matching lines use `include_at_match`. Never reach for `(?!...)`.
+#
+# This file is the `logs:` block of a Datadog Agent check (e.g. an integration
+# config under conf.d/, or a container label). Pair it with a Pipeline in the
+# Datadog UI (Logs > Configuration) that adds a Grok parser + a GeoIP/category
+# enrichment; verified-crawler classification by IP range is best done upstream
+# (see vector.toml) or in this toolkit, then forwarded as an attribute.
+
+logs:
+  - type: file
+    path: /var/log/nginx/access.seo.json.log
+    service: web-origin
+    source: nginx
+
+    log_processing_rules:
+      # Drop requests from internal/private RFC1918 + loopback ranges. These are
+      # plain anchored patterns — NO negative lookahead.
+      - type: exclude_at_match
+        name: exclude_internal_10_8
+        pattern: '"remote_addr":"10\.'
+      - type: exclude_at_match
+        name: exclude_internal_192_168
+        pattern: '"remote_addr":"192\.168\.'
+      - type: exclude_at_match
+        name: exclude_internal_172_16_31
+        pattern: '"remote_addr":"172\.(1[6-9]|2[0-9]|3[01])\.'
+      - type: exclude_at_match
+        name: exclude_loopback
+        pattern: '"remote_addr":"127\.'
+
+      # Alternatively, KEEP only verified-crawler lines that an upstream
+      # enricher (vector.toml / this toolkit) has tagged. include_at_match keeps
+      # lines that match; everything else is dropped.
+      # - type: include_at_match
+      #   name: keep_verified_crawlers
+      #   pattern: '"crawler_verified":true'

@@ -1,0 +1,11 @@
+{
+  "_comment": "VENDORED SNAPSHOT - trimmed subset of https://www.bing.com/toolbox/bingbot.json. Refresh in production with `crawl-log verify --refresh`.",
+  "creationTime": "2026-01-15T00:00:00.000000",
+  "prefixes": [
+    { "ipv4Prefix": "157.55.39.0/24" },
+    { "ipv4Prefix": "207.46.13.0/24" },
+    { "ipv4Prefix": "40.77.167.0/24" },
+    { "ipv4Prefix": "13.66.139.0/24" },
+    { "ipv4Prefix": "13.67.10.0/24" }
+  ]
+}

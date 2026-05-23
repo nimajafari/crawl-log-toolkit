@@ -1,0 +1,10 @@
+{
+  "_comment": "VENDORED SNAPSHOT - trimmed subset of https://developers.google.com/search/apis/ipranges/special-crawlers.json. Special crawlers (e.g. AdsBot, Google-InspectionTool). Refresh in production.",
+  "creationTime": "2026-01-15T00:00:00.000000",
+  "prefixes": [
+    { "ipv4Prefix": "34.100.182.96/28" },
+    { "ipv4Prefix": "34.101.50.144/28" },
+    { "ipv4Prefix": "34.118.254.0/28" },
+    { "ipv6Prefix": "2001:4860:4801:2000::/64" }
+  ]
+}

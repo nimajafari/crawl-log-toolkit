@@ -1,0 +1,11 @@
+{
+  "total": 440,
+  "verified": 350,
+  "unverified": 90,
+  "by_category": {
+    "bingbot": 15,
+    "googlebot": 325,
+    "special-crawler": 5,
+    "user-triggered": 5
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "_comment": "Minimal test fixture for the explicit --ranges-dir / ranges_dir path.",
+  "creationTime": "2026-01-01T00:00:00.000000",
+  "prefixes": [
+    { "ipv4Prefix": "66.249.66.0/27" },
+    { "ipv6Prefix": "2001:4860:4801:10::/64" }
+  ]
+}

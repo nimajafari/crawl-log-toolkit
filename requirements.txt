@@ -1,0 +1,8 @@
+# Runtime dependencies for crawl-log-toolkit.
+# Kept deliberately small: stdlib + these two.
+duckdb>=0.10
+requests>=2.28
+
+# Dev / CI extras (install with: pip install -r requirements.txt pytest ruff)
+# pytest>=7
+# ruff>=0.5

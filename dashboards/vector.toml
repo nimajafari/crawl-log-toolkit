@@ -1,0 +1,65 @@
+# Vector reference config: enrich access logs with verified-crawler identity
+# at ingest time, the same IP-based way crawl_log_toolkit.verify does it.
+#
+# ── PITFALLS THIS CONFIG DELIBERATELY AVOIDS ────────────────────────────────
+#  * Use `ip_cidr_contains(cidr, ip)` for subnet membership. It is FALLIBLE, so
+#    it MUST be coalesced (`?? false`). Do NOT use `includes([...], ip)` — that
+#    is exact string membership and will NEVER match a real address against a
+#    CIDR range.
+#  * Do NOT hardcode IP ranges. They change. Load them from the published JSON
+#    on a schedule (see the regeneration job below) and treat the list as
+#    generated, not hand-edited.
+#
+# How the ranges get here (run on a daily timer — cron / systemd / k8s CronJob):
+#
+#   curl -s https://developers.google.com/search/apis/ipranges/googlebot.json \
+#     | jq -r '.prefixes[] | (.ipv4Prefix // .ipv6Prefix)' \
+#     > /etc/vector/googlebot_cidrs.txt
+#
+# Then render the array below from that file (e.g. with envsubst or a small
+# templating step) so Vector restarts/reloads with fresh ranges.
+
+[sources.access_logs]
+type = "file"
+include = ["/var/log/nginx/access.seo.json.log"]
+read_from = "beginning"
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["access_logs"]
+source = '''
+  . = parse_json!(.message)
+'''
+
+[transforms.verify_crawler]
+type = "remap"
+inputs = ["parse_json"]
+source = '''
+  # >>> GENERATED daily from googlebot.json — do not hand-edit <<<
+  googlebot_cidrs = [
+    "66.249.64.0/27", "66.249.64.128/27", "66.249.65.0/27",
+    "66.249.66.0/27", "66.249.68.0/27",
+    "2001:4860:4801:10::/64", "2001:4860:4801:11::/64",
+  ]
+
+  ip = to_string(.remote_addr) ?? ""
+  .crawler_verified = false
+  for_each(googlebot_cidrs) -> |_index, cidr| {
+    # ip_cidr_contains is fallible -> coalesce with `?? false`.
+    if ip_cidr_contains(cidr, ip) ?? false {
+      .crawler_verified = true
+      .crawler_category = "googlebot"
+    }
+  }
+
+  # A Googlebot user-agent that is NOT IP-verified is a spoofer. Keep the two
+  # classes separate; never let unverified traffic into crawl-budget analysis.
+  ua = downcase(to_string(.http_user_agent) ?? "")
+  .claims_googlebot = contains(ua, "googlebot")
+  .spoofed = .claims_googlebot && !.crawler_verified
+'''
+
+[sinks.out]
+type = "console"   # replace with your real sink (elasticsearch, loki, s3, ...)
+inputs = ["verify_crawler"]
+encoding.codec = "json"

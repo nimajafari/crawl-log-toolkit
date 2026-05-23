@@ -1,0 +1,5 @@
+{
+  "prefix": "/calendar",
+  "distinct_urls": 200,
+  "crawls": 200
+}

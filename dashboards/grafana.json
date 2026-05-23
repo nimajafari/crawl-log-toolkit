@@ -1,0 +1,95 @@
+{
+  "__comment": "Grafana + Loki reference dashboard for verified-crawler log analysis. Import via Dashboards > New > Import, then pick your Loki datasource for the ${DS_LOKI} variable. Assumes JSON access logs shipped to Loki with a {job=\"crawl-logs\"} label; the LogQL `| json` stage parses the fields crawl-log-toolkit emits (status, path, crawler_category, crawler_verified, request_time). Verified-crawler classification by IP should be done upstream (see vector.toml) so `crawler_verified`/`crawler_category` are present.",
+  "title": "Verified Crawler Analytics (Loki)",
+  "uid": "crawl-log-toolkit",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["seo", "crawler", "googlebot"],
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_LOKI",
+        "label": "Loki datasource",
+        "type": "datasource",
+        "query": "loki",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Verified crawls over time (by category)",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (crawler_category) (count_over_time({job=\"crawl-logs\"} | json | crawler_verified=`true` [$__auto]))",
+          "legendFormat": "{{crawler_category}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Status-code distribution (verified)",
+      "type": "piechart",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (count_over_time({job=\"crawl-logs\"} | json | crawler_verified=`true` [$__range]))",
+          "legendFormat": "{{status}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Spoofed Googlebot (UA claims bot, IP not verified)",
+      "type": "stat",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"crawl-logs\"} | json | http_user_agent=~`(?i).*googlebot.*` | crawler_verified=`false` [$__range]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Parameter proliferation: crawls on parameterized URLs (verified)",
+      "type": "stat",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"crawl-logs\"} | json | crawler_verified=`true` | request_uri=~`.+\\?.+` [$__range]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Top crawled paths (verified)",
+      "type": "table",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(25, sum by (path) (count_over_time({job=\"crawl-logs\"} | json | crawler_verified=`true` [$__range])))",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

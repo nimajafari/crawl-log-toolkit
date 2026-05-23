@@ -1,0 +1,13 @@
+{
+  "_comment": "VENDORED SNAPSHOT for offline/out-of-the-box use and CI fixtures. A trimmed subset of https://developers.google.com/search/apis/ipranges/googlebot.json - refresh in production with `crawl-log verify --refresh`.",
+  "creationTime": "2026-01-15T00:00:00.000000",
+  "prefixes": [
+    { "ipv4Prefix": "66.249.64.0/27" },
+    { "ipv4Prefix": "66.249.64.128/27" },
+    { "ipv4Prefix": "66.249.65.0/27" },
+    { "ipv4Prefix": "66.249.66.0/27" },
+    { "ipv4Prefix": "66.249.68.0/27" },
+    { "ipv6Prefix": "2001:4860:4801:10::/64" },
+    { "ipv6Prefix": "2001:4860:4801:11::/64" }
+  ]
+}

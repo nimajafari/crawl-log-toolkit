@@ -1,0 +1,10 @@
+{
+  "_comment": "VENDORED SNAPSHOT - trimmed subset of https://developers.google.com/search/apis/ipranges/user-triggered-fetchers.json. Fetches triggered by a user action (e.g. Site Verifier). Refresh in production.",
+  "creationTime": "2026-01-15T00:00:00.000000",
+  "prefixes": [
+    { "ipv4Prefix": "35.187.132.0/24" },
+    { "ipv4Prefix": "35.247.243.0/24" },
+    { "ipv4Prefix": "64.233.172.0/24" },
+    { "ipv6Prefix": "2001:4860:4801:3000::/64" }
+  ]
+}

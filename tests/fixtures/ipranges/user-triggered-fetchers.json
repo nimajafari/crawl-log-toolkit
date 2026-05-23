@@ -1,0 +1,7 @@
+{
+  "_comment": "Minimal test fixture.",
+  "creationTime": "2026-01-01T00:00:00.000000",
+  "prefixes": [
+    { "ipv4Prefix": "35.187.132.0/24" }
+  ]
+}
