@@ -238,6 +238,34 @@ def cmd_analyze(args) -> int:
     if not names:
         sys.exit("error: pass --query NAME (repeatable), --all, or --list")
 
+    if args.format == "html":
+        from .report import render_html
+
+        results = [
+            (
+                name,
+                _analyze.run_query(
+                    name,
+                    args.parquet,
+                    publication_log=args.publication_log,
+                    limit=args.limit,
+                    strict=args.strict,
+                ),
+            )
+            for name in names
+        ]
+        doc = render_html(
+            results,
+            source=str(args.parquet),
+            generated_at=datetime.now(),
+            version=__version__,
+        )
+        with writing(args.output) as out:
+            out.write(doc + "\n")
+        if args.output not in ("-", None):
+            print(f"wrote HTML report: {args.output}", file=sys.stderr)
+        return 0
+
     with writing(args.output) as out:
         for i, name in enumerate(names):
             rows = _analyze.run_query(
@@ -346,7 +374,10 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("--publication-log", help="CSV (url,published_at) for first-crawl latency")
     sa.add_argument("--limit", type=int, help="cap rows per query")
     sa.add_argument(
-        "--format", choices=("table", "json", "csv"), default="table", help="output format"
+        "--format",
+        choices=("table", "json", "csv", "html"),
+        default="table",
+        help="output format (html = a self-contained visual report)",
     )
     sa.add_argument("-o", "--output", default="-", help="output path, or - for stdout")
     sa.add_argument(

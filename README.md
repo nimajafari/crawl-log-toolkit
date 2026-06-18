@@ -105,8 +105,13 @@ non-Google IPs — all 90 unverified lines include these), a
    crawl-log analyze enriched.parquet --all       # run everything
    crawl-log analyze enriched.parquet -q parameter_proliferation
    crawl-log analyze "logs/*.parquet" -q crawl_trap_detection   # glob multiple files
-   crawl-log analyze enriched.parquet --all --format csv -o report.csv
+   crawl-log analyze enriched.parquet --all --format csv  -o report.csv
+   crawl-log analyze enriched.parquet --all --format html -o report.html   # shareable report
    ```
+   The `html` format writes a **single self-contained file** (inline CSS + SVG
+   charts, no JavaScript or network) with summary cards, every metric table, and
+   a "what healthy looks like" note per metric — open it in a browser or send it
+   to a client.
 
 6. **(Optional) first-crawl latency.** Provide a CSV of `url,published_at`
    (paths matching the normalized `path`) to measure time-to-discovery:
@@ -213,6 +218,10 @@ Each query in [`crawl_log_toolkit/queries/`](crawl_log_toolkit/queries) is
 DuckDB SQL written against a single relation named `logs` (a view `analyze`
 creates over your Parquet). Each file documents what it answers, what *healthy*
 looks like, and the BigQuery / Snowflake / ClickHouse syntax tweaks.
+
+Add `--format html -o report.html` to turn the whole pack into a shareable,
+self-contained report (summary cards, per-metric tables with their healthy-range
+notes, and inline-SVG charts — no JavaScript, no network).
 
 ## Metric catalog
 
