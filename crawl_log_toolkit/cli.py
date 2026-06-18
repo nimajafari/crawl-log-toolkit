@@ -23,7 +23,7 @@ from . import __version__
 from . import analyze as _analyze
 from ._io import reading, writing
 from .parse import FORMATS, iter_records, parse_line
-from .verify import CrawlerVerifier
+from .verify import CrawlerVerifier, bundled_ranges_dir, update_ranges
 
 # --------------------------------------------------------------------------- #
 # shared helpers
@@ -173,6 +173,22 @@ def cmd_enrich(args) -> int:
     return 0
 
 
+def cmd_update_ranges(args) -> int:
+    dest = args.ranges_dir  # None -> the bundled package dir
+    try:
+        result = update_ranges(dest)
+    except RuntimeError as exc:
+        sys.exit(f"error: {exc}")
+    except OSError as exc:
+        sys.exit(
+            f"error: cannot write ranges to {dest or bundled_ranges_dir()}: {exc}\n"
+            "(installed packages are often read-only; pass --ranges-dir DIR to write "
+            "to a writable location, then use that DIR with --ranges-dir on verify/enrich.)"
+        )
+    print("update-ranges: " + json.dumps(result), file=sys.stderr)
+    return 0
+
+
 def cmd_analyze(args) -> int:
     if args.list:
         for name in _analyze.list_queries():
@@ -263,6 +279,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_verifier_args(se)
     se.set_defaults(func=cmd_enrich)
+
+    # update-ranges
+    su = sub.add_parser(
+        "update-ranges",
+        help="Fetch the full published crawler IP ranges and write them to disk.",
+        description=(
+            "Download every source's complete IP-range list (Googlebot, Google "
+            "special crawlers, user-triggered fetchers, Bingbot) and write it as "
+            "JSON. With no --ranges-dir this refreshes the bundled snapshot in "
+            "place; otherwise it writes to the given directory for use with "
+            "--ranges-dir on verify/enrich."
+        ),
+    )
+    su.add_argument(
+        "-d",
+        "--ranges-dir",
+        metavar="DIR",
+        help="write the lists here instead of the bundled package directory",
+    )
+    su.set_defaults(func=cmd_update_ranges)
 
     # analyze
     sa = sub.add_parser("analyze", help="Run the analytical SQL pack on enriched Parquet.")

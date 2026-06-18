@@ -1,22 +1,26 @@
 """Pytest fixtures: an offline verifier and a session-scoped enriched Parquet.
 
-The enriched Parquet is built once per session by running the real enrich stage
-on the bundled sample data with NO network (the vendored IP-range snapshot is
-used), so the end-to-end tests assert against actual pipeline output.
+Both pin the verifier to the synthetic ``tests/fixtures/ipranges`` set via
+``ranges_dir`` rather than the bundled production lists. That keeps the suite
+deterministic: it neither churns when the real published ranges change (the
+bundled lists are full and refreshable with ``crawl-log update-ranges``) nor
+silently reads whatever happens to sit in the shared ``~/.cache`` range cache.
+The enriched Parquet is built once per session from the bundled sample data so
+the end-to-end tests assert against actual pipeline output.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tests.helpers import SAMPLE_LOG
+from tests.helpers import FIXTURE_RANGES, SAMPLE_LOG
 
 
 @pytest.fixture(scope="session")
 def verifier():
     from crawl_log_toolkit.verify import CrawlerVerifier
 
-    return CrawlerVerifier(allow_network=False).load()
+    return CrawlerVerifier(ranges_dir=FIXTURE_RANGES, allow_network=False).load()
 
 
 @pytest.fixture(scope="session")
@@ -29,6 +33,6 @@ def enriched_parquet(tmp_path_factory):
         SAMPLE_LOG,
         out,
         fmt="auto",
-        verifier=CrawlerVerifier(allow_network=False).load(),
+        verifier=CrawlerVerifier(ranges_dir=FIXTURE_RANGES, allow_network=False).load(),
     )
     return out

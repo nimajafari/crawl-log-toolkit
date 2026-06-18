@@ -1,7 +1,8 @@
 {
-  "_comment": "Minimal test fixture.",
+  "_comment": "Synthetic test fixture (see tests/conftest.py).",
   "creationTime": "2026-01-01T00:00:00.000000",
   "prefixes": [
-    { "ipv4Prefix": "157.55.39.0/24" }
+    { "ipv4Prefix": "157.55.39.0/24" },
+    { "ipv4Prefix": "40.77.167.0/24" }
   ]
 }

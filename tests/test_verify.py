@@ -10,7 +10,10 @@ import pytest
 from crawl_log_toolkit.verify import CrawlerVerifier
 from tests.helpers import FIXTURE_RANGES
 
-# --- classification against the vendored snapshot (offline) ------------------
+# --- classification against the synthetic fixture ranges (offline) -----------
+# The `verifier` fixture is pinned to tests/fixtures/ipranges (see conftest.py),
+# a controlled set covering the sample IPs, so these assertions don't churn when
+# the real published ranges change.
 
 
 @pytest.mark.parametrize(
@@ -123,3 +126,51 @@ def test_falls_back_to_bundled_when_offline_and_no_cache(tmp_path):
     # Empty cache dir, no network -> must still classify using the bundled snapshot.
     v = CrawlerVerifier(cache_dir=tmp_path / "empty", allow_network=False).load()
     assert v.classify("66.249.66.1") == "googlebot"
+    # The bundled lists are the FULL published ranges, not a trimmed subset:
+    # an address outside the old hand-picked /27s must still verify.
+    assert v.classify("66.249.66.39") == "googlebot"
+    assert v.stats()["prefixes_total"] > 100
+
+
+# --- manual range updates (crawl-log update-ranges) --------------------------
+
+
+def test_update_ranges_writes_every_source(monkeypatch, tmp_path):
+    from crawl_log_toolkit import verify as verify_mod
+
+    def fake_fetch(url):
+        # Hand each source a unique, identifiable prefix.
+        prefix = {
+            "googlebot": "11.0.0.0/24",
+            "special-crawlers": "12.0.0.0/24",
+            "user-triggered-fetchers": "13.0.0.0/24",
+            "bingbot": "14.0.0.0/24",
+        }[next(s.name for s in verify_mod.SOURCES if s.url == url)]
+        return {"creationTime": "x", "prefixes": [{"ipv4Prefix": prefix}]}
+
+    monkeypatch.setattr(CrawlerVerifier, "_fetch", staticmethod(fake_fetch))
+    result = verify_mod.update_ranges(tmp_path)
+
+    assert result["prefixes_total"] == 4
+    assert set(result["by_source"]) == {s.name for s in verify_mod.SOURCES}
+    for s in verify_mod.SOURCES:
+        assert (tmp_path / f"{s.name}.json").exists()
+    # The written lists are usable as an offline ranges_dir.
+    v = CrawlerVerifier(ranges_dir=tmp_path, allow_network=False).load()
+    assert v.classify("11.0.0.5") == "googlebot"
+    assert v.classify("14.0.0.5") == "bingbot"
+
+
+def test_update_ranges_is_atomic_on_fetch_failure(monkeypatch, tmp_path):
+    from crawl_log_toolkit import verify as verify_mod
+
+    def flaky_fetch(url):
+        # One source fails -> the whole update must abort, writing nothing.
+        if "bingbot" in url:
+            return None
+        return {"prefixes": [{"ipv4Prefix": "11.0.0.0/24"}]}
+
+    monkeypatch.setattr(CrawlerVerifier, "_fetch", staticmethod(flaky_fetch))
+    with pytest.raises(RuntimeError, match="bingbot"):
+        verify_mod.update_ranges(tmp_path)
+    assert list(tmp_path.glob("*.json")) == []

@@ -32,7 +32,15 @@ from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 
-__all__ = ["CrawlerVerifier", "Source", "SOURCES", "default_verifier", "classify_ip"]
+__all__ = [
+    "CrawlerVerifier",
+    "Source",
+    "SOURCES",
+    "default_verifier",
+    "classify_ip",
+    "update_ranges",
+    "bundled_ranges_dir",
+]
 
 _IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 _IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -86,6 +94,56 @@ SOURCES: tuple[Source, ...] = (
 _FCRDNS_EXTRA = {".applebot.apple.com": "applebot"}
 
 DEFAULT_TTL_SECONDS = 86_400  # one day
+_USER_AGENT = "crawl-log-toolkit (+https://pypi.org/project/crawl-log-toolkit)"
+
+
+def bundled_ranges_dir() -> Path:
+    """Filesystem path of the vendored IP-range JSON shipped with the package.
+
+    This is where :func:`update_ranges` writes by default, and the offline
+    fallback :meth:`CrawlerVerifier._load_bundled` reads from.
+    """
+    return Path(str(resources.files("crawl_log_toolkit.data.ipranges")))
+
+
+def update_ranges(
+    dest_dir: str | Path | None = None,
+    *,
+    sources: Iterable[Source] = SOURCES,
+) -> dict:
+    """Fetch every source's full published list and write it to ``dest_dir``.
+
+    Manual, explicit refresh of the on-disk range lists (as opposed to the
+    runtime TTL cache used by :meth:`CrawlerVerifier.load`). With no ``dest_dir``
+    it rewrites the bundled snapshot in place — handy for editable/clone installs
+    that want current ranges baked in. Point it at a writable directory and pass
+    that directory to ``--ranges-dir`` for non-editable installs or air-gapped
+    mirrors. Raises ``RuntimeError`` if any source can't be fetched (nothing is
+    written for that source, so a half-broken set never overwrites a good one).
+    """
+    dest = Path(dest_dir) if dest_dir else bundled_ranges_dir()
+    fetched: list[tuple[str, dict, int]] = []
+    for source in sources:
+        doc = CrawlerVerifier._fetch(source.url)
+        if doc is None or "prefixes" not in doc:
+            raise RuntimeError(f"failed to fetch ranges for {source.name} from {source.url}")
+        fetched.append((source.name, doc, len(doc.get("prefixes", []))))
+
+    # Only write once every fetch succeeded, so a network blip can't leave the
+    # directory with a mix of fresh and stale lists.
+    dest.mkdir(parents=True, exist_ok=True)
+    by_source: dict[str, int] = {}
+    for name, doc, count in fetched:
+        doc = {
+            "_comment": (
+                "Published crawler IP ranges fetched by `crawl-log update-ranges`. "
+                "Refresh with that command; do not edit by hand unless mirroring."
+            ),
+            **doc,
+        }
+        (dest / f"{name}.json").write_text(json.dumps(doc, indent=1) + "\n")
+        by_source[name] = count
+    return {"dest": str(dest), "by_source": by_source, "prefixes_total": sum(by_source.values())}
 
 
 def _parse_prefixes(doc: dict) -> list[_IPNetwork]:
@@ -182,7 +240,9 @@ class CrawlerVerifier:
         try:
             import requests
 
-            resp = requests.get(url, timeout=15)
+            # A descriptive User-Agent: some publishers (Google's ipranges
+            # endpoint among them) reject the default ``python-requests`` UA.
+            resp = requests.get(url, timeout=15, headers={"User-Agent": _USER_AGENT})
             resp.raise_for_status()
             return resp.json()
         except Exception:
