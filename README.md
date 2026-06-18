@@ -235,7 +235,8 @@ notes, and inline-SVG charts — no JavaScript, no network).
 | `first_crawl_latency` | Time from publish → first crawl? | Hours, not days (needs `--publication-log`) |
 | `parameter_proliferation` | % of budget on parameterized URLs | Low single digits |
 | `top_parameters` | Which params drive proliferation? | A short, intentional list |
-| `redirect_404_waste` | Budget burned on 3xx + 404? | < ~5% combined |
+| `redirect_404_waste` | Budget burned on 3xx + 404? | < ~5% combined (304 excluded) |
+| `redirect_404_urls` | *Which* URLs return 3xx/4xx? | A short list to fix (links, redirects, dead pages) |
 | `crawl_trap_detection` | Which prefix has unbounded URL cardinality? | Bounded distinct URLs per prefix |
 | `crawl_waste_pct` | One headline waste number | Low; trend it month-over-month |
 | `spoofed_crawler_summary` | Who fakes a crawler UA? | Empty-ish; feed the rest to your WAF |

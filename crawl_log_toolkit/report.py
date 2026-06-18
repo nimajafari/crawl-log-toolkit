@@ -227,6 +227,7 @@ _CHARTS = {
     "crawl_trap_detection": ("prefix", "crawls", "#5b8def"),
     "crawl_depth": ("depth", "crawls", "#5b8def"),
     "top_parameters": ("parameter", "occurrences", "#5b8def"),
+    "redirect_404_urls": ("path", "crawls", "#9a6a12"),
 }
 
 # How to satisfy a query whose required relation wasn't supplied. Keyed by the
