@@ -36,6 +36,37 @@ def _json_default(obj):
     return str(obj)
 
 
+class _Progress:
+    """A throttled, single-line stderr progress indicator for long passes.
+
+    Active only when stderr is a TTY, so piping/redirecting output stays clean.
+    ``tick()`` is cheap enough to call once per row; it only repaints every
+    ``every`` rows. ``close()`` erases the line so the final summary prints clean.
+    """
+
+    _SPIN = "|/-\\"
+
+    def __init__(self, label: str, every: int = 200_000) -> None:
+        self.label = label
+        self.every = every
+        self.n = 0
+        self._next = every
+        self.enabled = sys.stderr.isatty()
+
+    def tick(self, n: int = 1) -> None:
+        self.n += n
+        if self.enabled and self.n >= self._next:
+            self._next += self.every
+            spin = self._SPIN[(self.n // self.every) % len(self._SPIN)]
+            sys.stderr.write(f"\r{self.label} {spin} {self.n:,} lines…")
+            sys.stderr.flush()
+
+    def close(self) -> None:
+        if self.enabled and self.n >= self.every:
+            sys.stderr.write("\r\033[K")  # carriage return + clear to end of line
+            sys.stderr.flush()
+
+
 def _add_verifier_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("crawler verification")
     g.add_argument(
@@ -124,11 +155,13 @@ def cmd_verify(args) -> int:
     total = accepted = 0
     by_category: dict[str, int] = {}
     classify = verifier.classify_fcrdns if args.fcrdns else verifier.classify
+    progress = _Progress("verify: scanning")
 
     with reading(args.input) as src, writing(args.output) as out:
         for line in src:
             if not line.strip():
                 continue
+            progress.tick()
             rec = parse_line(line, fmt=args.format, host=args.host)
             if rec is None:
                 continue
@@ -146,6 +179,7 @@ def cmd_verify(args) -> int:
                     rec["verified"] = True
                     out.write(json.dumps(rec, default=_json_default) + "\n")
 
+    progress.close()
     summary = {
         "total": total,
         "accepted": accepted,
@@ -160,6 +194,7 @@ def cmd_enrich(args) -> int:
     from .enrich import enrich
 
     verifier = _build_verifier(args)
+    progress = _Progress("enrich: processing")
     stats = enrich(
         args.input,
         args.output,
@@ -168,7 +203,9 @@ def cmd_enrich(args) -> int:
         host=args.host,
         verifier=verifier,
         anonymize_ips=args.anonymize_ips,
+        on_progress=progress.tick,
     )
+    progress.close()
     print("enrich summary: " + json.dumps(stats), file=sys.stderr)
     return 0
 
