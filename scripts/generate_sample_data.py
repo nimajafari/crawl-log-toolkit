@@ -32,7 +32,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_DIR = ROOT / "sample-data"
 EXPECTED_DIR = SAMPLE_DIR / "expected"
 
-# --- identities (IPs must live in crawl_log_toolkit/data/ipranges snapshots) --
+# --- identities (verified IPs must live in tests/fixtures/ipranges, the synthetic
+#     set the e2e test verifies against; see tests/conftest.py) -------------------
 GOOGLEBOT_IPS = ["66.249.66.1", "66.249.66.2", "66.249.64.5"]
 BINGBOT_IPS = ["157.55.39.10", "40.77.167.5"]
 SPECIAL_IP = "34.100.182.100"

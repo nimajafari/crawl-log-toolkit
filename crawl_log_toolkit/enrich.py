@@ -24,7 +24,7 @@ import ipaddress
 import json
 import os
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 from . import SCHEMA_FIELDS
@@ -113,10 +113,12 @@ def enrich_records(
     *,
     verifier: CrawlerVerifier | None = None,
     anonymize_ips: bool = False,
+    on_progress: Callable[[], None] | None = None,
 ) -> dict:
     """Classify ``records`` and write them as ZSTD Parquet to ``output_path``.
 
     Returns a stats dict: total rows, verified rows, and a per-category count.
+    ``on_progress`` (if given) is called once per row, for a progress indicator.
     """
     import duckdb
 
@@ -133,6 +135,8 @@ def enrich_records(
         with tmp:
             for rec in _classify_records(records, verifier, anonymize_ips=anonymize_ips):
                 total += 1
+                if on_progress is not None:
+                    on_progress()
                 if rec["verified"]:
                     verified += 1
                     cat = rec["crawler_category"]
@@ -179,12 +183,14 @@ def enrich(
     host: str | None = None,
     verifier: CrawlerVerifier | None = None,
     anonymize_ips: bool = False,
+    on_progress: Callable[[], None] | None = None,
 ) -> dict:
     """Read raw logs (or normalized JSONL) and write enriched ZSTD Parquet.
 
     ``input_path`` may be a path, ``-``/``None`` for stdin, and is gzip-transparent.
     With ``from_jsonl=True`` the input is treated as the JSONL produced by
     ``crawl-log parse`` instead of being re-parsed from a raw log format.
+    ``on_progress`` (if given) is called once per row, for a progress indicator.
     """
     with reading(input_path) as stream:
         if from_jsonl:
@@ -192,7 +198,13 @@ def enrich(
         else:
             records = iter_records(stream, fmt=fmt, host=host)
         # Materialize within the open stream so the file isn't closed early.
-        return enrich_records(records, output_path, verifier=verifier, anonymize_ips=anonymize_ips)
+        return enrich_records(
+            records,
+            output_path,
+            verifier=verifier,
+            anonymize_ips=anonymize_ips,
+            on_progress=on_progress,
+        )
 
 
 def register_verifier_udf(con, verifier: CrawlerVerifier | None = None) -> None:

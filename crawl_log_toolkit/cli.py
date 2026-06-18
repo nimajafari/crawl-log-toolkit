@@ -23,7 +23,7 @@ from . import __version__
 from . import analyze as _analyze
 from ._io import reading, writing
 from .parse import FORMATS, iter_records, parse_line
-from .verify import CrawlerVerifier
+from .verify import CrawlerVerifier, bundled_ranges_dir, update_ranges
 
 # --------------------------------------------------------------------------- #
 # shared helpers
@@ -34,6 +34,37 @@ def _json_default(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     return str(obj)
+
+
+class _Progress:
+    """A throttled, single-line stderr progress indicator for long passes.
+
+    Active only when stderr is a TTY, so piping/redirecting output stays clean.
+    ``tick()`` is cheap enough to call once per row; it only repaints every
+    ``every`` rows. ``close()`` erases the line so the final summary prints clean.
+    """
+
+    _SPIN = "|/-\\"
+
+    def __init__(self, label: str, every: int = 200_000) -> None:
+        self.label = label
+        self.every = every
+        self.n = 0
+        self._next = every
+        self.enabled = sys.stderr.isatty()
+
+    def tick(self, n: int = 1) -> None:
+        self.n += n
+        if self.enabled and self.n >= self._next:
+            self._next += self.every
+            spin = self._SPIN[(self.n // self.every) % len(self._SPIN)]
+            sys.stderr.write(f"\r{self.label} {spin} {self.n:,} lines…")
+            sys.stderr.flush()
+
+    def close(self) -> None:
+        if self.enabled and self.n >= self.every:
+            sys.stderr.write("\r\033[K")  # carriage return + clear to end of line
+            sys.stderr.flush()
 
 
 def _add_verifier_args(p: argparse.ArgumentParser) -> None:
@@ -124,11 +155,13 @@ def cmd_verify(args) -> int:
     total = accepted = 0
     by_category: dict[str, int] = {}
     classify = verifier.classify_fcrdns if args.fcrdns else verifier.classify
+    progress = _Progress("verify: scanning")
 
     with reading(args.input) as src, writing(args.output) as out:
         for line in src:
             if not line.strip():
                 continue
+            progress.tick()
             rec = parse_line(line, fmt=args.format, host=args.host)
             if rec is None:
                 continue
@@ -146,6 +179,7 @@ def cmd_verify(args) -> int:
                     rec["verified"] = True
                     out.write(json.dumps(rec, default=_json_default) + "\n")
 
+    progress.close()
     summary = {
         "total": total,
         "accepted": accepted,
@@ -160,6 +194,7 @@ def cmd_enrich(args) -> int:
     from .enrich import enrich
 
     verifier = _build_verifier(args)
+    progress = _Progress("enrich: processing")
     stats = enrich(
         args.input,
         args.output,
@@ -168,8 +203,26 @@ def cmd_enrich(args) -> int:
         host=args.host,
         verifier=verifier,
         anonymize_ips=args.anonymize_ips,
+        on_progress=progress.tick,
     )
+    progress.close()
     print("enrich summary: " + json.dumps(stats), file=sys.stderr)
+    return 0
+
+
+def cmd_update_ranges(args) -> int:
+    dest = args.ranges_dir  # None -> the bundled package dir
+    try:
+        result = update_ranges(dest)
+    except RuntimeError as exc:
+        sys.exit(f"error: {exc}")
+    except OSError as exc:
+        sys.exit(
+            f"error: cannot write ranges to {dest or bundled_ranges_dir()}: {exc}\n"
+            "(installed packages are often read-only; pass --ranges-dir DIR to write "
+            "to a writable location, then use that DIR with --ranges-dir on verify/enrich.)"
+        )
+    print("update-ranges: " + json.dumps(result), file=sys.stderr)
     return 0
 
 
@@ -184,6 +237,34 @@ def cmd_analyze(args) -> int:
     names = args.query or (_analyze.list_queries() if args.all else None)
     if not names:
         sys.exit("error: pass --query NAME (repeatable), --all, or --list")
+
+    if args.format == "html":
+        from .report import render_html
+
+        results = [
+            (
+                name,
+                _analyze.run_query(
+                    name,
+                    args.parquet,
+                    publication_log=args.publication_log,
+                    limit=args.limit,
+                    strict=args.strict,
+                ),
+            )
+            for name in names
+        ]
+        doc = render_html(
+            results,
+            source=str(args.parquet),
+            generated_at=datetime.now(),
+            version=__version__,
+        )
+        with writing(args.output) as out:
+            out.write(doc + "\n")
+        if args.output not in ("-", None):
+            print(f"wrote HTML report: {args.output}", file=sys.stderr)
+        return 0
 
     with writing(args.output) as out:
         for i, name in enumerate(names):
@@ -264,6 +345,26 @@ def build_parser() -> argparse.ArgumentParser:
     _add_verifier_args(se)
     se.set_defaults(func=cmd_enrich)
 
+    # update-ranges
+    su = sub.add_parser(
+        "update-ranges",
+        help="Fetch the full published crawler IP ranges and write them to disk.",
+        description=(
+            "Download every source's complete IP-range list (Googlebot, Google "
+            "special crawlers, user-triggered fetchers, Bingbot) and write it as "
+            "JSON. With no --ranges-dir this refreshes the bundled snapshot in "
+            "place; otherwise it writes to the given directory for use with "
+            "--ranges-dir on verify/enrich."
+        ),
+    )
+    su.add_argument(
+        "-d",
+        "--ranges-dir",
+        metavar="DIR",
+        help="write the lists here instead of the bundled package directory",
+    )
+    su.set_defaults(func=cmd_update_ranges)
+
     # analyze
     sa = sub.add_parser("analyze", help="Run the analytical SQL pack on enriched Parquet.")
     sa.add_argument("parquet", nargs="?", help="enriched .parquet path (or glob)")
@@ -273,7 +374,10 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("--publication-log", help="CSV (url,published_at) for first-crawl latency")
     sa.add_argument("--limit", type=int, help="cap rows per query")
     sa.add_argument(
-        "--format", choices=("table", "json", "csv"), default="table", help="output format"
+        "--format",
+        choices=("table", "json", "csv", "html"),
+        default="table",
+        help="output format (html = a self-contained visual report)",
     )
     sa.add_argument("-o", "--output", default="-", help="output path, or - for stdout")
     sa.add_argument(

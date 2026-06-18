@@ -109,6 +109,19 @@ def test_redirect_404_waste(enriched_parquet):
     assert row["server_errors"] == 0
 
 
+def test_redirect_404_urls_lists_offending_paths(enriched_parquet):
+    rows = run_query("redirect_404_urls", enriched_parquet)
+    by_status: dict[int, int] = {}
+    for r in rows:
+        by_status[r["status"]] = by_status.get(r["status"], 0) + r["crawls"]
+    # The sample plants 10 single-hit 301 redirects and a 25-request 404 spike.
+    assert by_status.get(301) == 10
+    assert by_status.get(404) == 25
+    # Every listed path is a real 3xx/4xx and carries detail to act on.
+    assert rows and all(r["last_crawled"] is not None for r in rows)
+    assert all(300 <= r["status"] <= 499 and r["status"] != 304 for r in rows)
+
+
 def test_first_crawl_latency(enriched_parquet):
     expected = load_expected("publications")
     rows = run_query("first_crawl_latency", enriched_parquet, publication_log=PUBLICATION_LOG)

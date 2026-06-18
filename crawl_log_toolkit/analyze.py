@@ -23,6 +23,7 @@ __all__ = [
     "list_queries",
     "load_query",
     "query_requirements",
+    "query_doc",
     "run_query",
     "QueryError",
 ]
@@ -64,6 +65,31 @@ def query_requirements(sql: str) -> list[str]:
     for m in _REQUIRES_RE.finditer(sql):
         reqs.extend(part.strip() for part in m.group(1).split(",") if part.strip())
     return reqs
+
+
+def query_doc(sql: str) -> dict:
+    """Extract human-readable docs from a query's leading ``--`` comment block.
+
+    Returns ``{"title", "answers", "healthy"}``. The title is the first comment
+    line that isn't a ``requires:`` directive; ``Answers:`` and ``Healthy:`` lines
+    populate the matching keys. Used to make the HTML report self-explaining.
+    """
+    title = answers = healthy = ""
+    for raw in sql.splitlines():
+        line = raw.strip()
+        if not line.startswith("--"):
+            break  # header block ends at the first SQL line
+        text = line[2:].strip()
+        low = text.lower()
+        if low.startswith("requires:"):
+            continue
+        if low.startswith("answers:"):
+            answers = text.split(":", 1)[1].strip()
+        elif low.startswith("healthy:"):
+            healthy = text.split(":", 1)[1].strip()
+        elif not title:
+            title = text
+    return {"title": title, "answers": answers, "healthy": healthy}
 
 
 def _sql_str(value: str | Path) -> str:
