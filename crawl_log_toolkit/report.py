@@ -1,10 +1,12 @@
 """Render the analysis pack as a single self-contained HTML report.
 
-No templating engine, no JavaScript, no CDN — just Python string building with
-inline CSS and inline-SVG charts, so the output is one file that opens offline
-with a double-click. :func:`render_html` takes the same ``(name, rows)`` results
+No templating engine and nothing loaded from the network — just Python string
+building with inline CSS, inline-SVG charts, and one tiny inline script (a
+light/dark theme toggle). The output is one file that opens offline with a
+double-click. :func:`render_html` takes the same ``(name, rows)`` results
 ``analyze`` already produces and turns them into summary cards, per-metric
 sections (each annotated with what *healthy* looks like), and a few bar charts.
+Light/dark follows the OS preference and can be flipped with the in-page toggle.
 """
 
 from __future__ import annotations
@@ -17,55 +19,117 @@ from .analyze import load_query, query_doc, query_requirements
 
 __all__ = ["render_html"]
 
-# A muted, print-friendly palette. Accent greens/ambers flag healthy vs watch.
+# Themeable palette. Light is the default; dark applies when the OS prefers it
+# (unless the reader forced light) or when the in-page toggle sets data-theme.
+# Chart fills are CSS-driven (see the .bar* classes) so SVG follows the theme too.
 _CSS = """
 :root {
-  --bg: #f6f7f9; --card: #ffffff; --ink: #1c2530; --muted: #5b6876;
-  --line: #e6e9ee; --accent: #2f6f4f; --accent-soft: #e8f2ec;
-  --warn: #9a6a12; --warn-soft: #fbf2df; --bar: #5b8def; --bar-soft: #eef3fd;
+  --bg: #f4f6f8; --card: #ffffff; --ink: #1b2430; --muted: #5b6876;
+  --line: #e7eaef; --row: #fafbfc; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
+  --hero1: #1f2a37; --hero2: #2f6f4f; --on-hero: #ffffff;
+  --good: #2f6f4f; --good-soft: #e8f2ec;
+  --warn: #9a6a12; --warn-soft: #fbf2df; --warn-line: #f0e2c2;
+  --bar-track: #eef3fd; --bar-green: #2f6f4f; --bar-blue: #5b8def; --bar-amber: #c1873a;
+  --chip: #eef0f3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --card: #161d27; --ink: #e7ecf2; --muted: #97a3b2;
+    --line: #243040; --row: #1a222d; --shadow: 0 1px 2px rgba(0,0,0,.4);
+    --hero1: #11202b; --hero2: #1d5a40; --on-hero: #eaf2ee;
+    --good: #6cc59a; --good-soft: #16312663;
+    --warn: #e0b766; --warn-soft: #2e260f7a; --warn-line: #4a3c19;
+    --bar-track: #223040; --bar-green: #3f9b6d; --bar-blue: #6f9ef0; --bar-amber: #d39a4e;
+    --chip: #223040;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --card: #161d27; --ink: #e7ecf2; --muted: #97a3b2;
+  --line: #243040; --row: #1a222d; --shadow: 0 1px 2px rgba(0,0,0,.4);
+  --hero1: #11202b; --hero2: #1d5a40; --on-hero: #eaf2ee;
+  --good: #6cc59a; --good-soft: #16312663;
+  --warn: #e0b766; --warn-soft: #2e260f7a; --warn-line: #4a3c19;
+  --bar-track: #223040; --bar-green: #3f9b6d; --bar-blue: #6f9ef0; --bar-amber: #d39a4e;
+  --chip: #223040;
 }
 * { box-sizing: border-box; }
+html { color-scheme: light dark; }
 body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  transition: background .2s ease, color .2s ease;
 }
-.wrap { max-width: 960px; margin: 0 auto; padding: 0 20px 64px; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 64px; }
 header.hero {
-  background: linear-gradient(135deg, #1f2a37, #2f6f4f);
-  color: #fff; padding: 36px 0 30px; margin-bottom: 28px;
+  background: linear-gradient(135deg, var(--hero1), var(--hero2));
+  color: var(--on-hero); padding: 34px 0 30px; margin-bottom: 28px;
 }
 header.hero .wrap { padding-bottom: 0; }
-header.hero h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.2px; }
-header.hero .sub { opacity: 0.85; font-size: 13.5px; }
-header.hero .sub code { background: rgba(255,255,255,0.15); padding: 1px 6px; border-radius: 5px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 0 0 30px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
-.card .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
-.card .value { font-size: 27px; font-weight: 650; margin-top: 4px; letter-spacing: -0.5px; }
+header.hero .top { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+header.hero h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.3px; }
+header.hero .sub { opacity: .9; font-size: 13.5px; }
+header.hero .sub code { background: rgba(255,255,255,.16); padding: 1px 6px; border-radius: 5px; }
+.toggle {
+  flex: none; cursor: pointer; border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.1);
+  color: var(--on-hero); border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 7px; transition: background .15s ease;
+}
+.toggle:hover { background: rgba(255,255,255,.2); }
+.toggle .ico-dark { display: none; }
+:root[data-theme="dark"] .toggle .ico-dark, html:not([data-theme="light"]) .toggle .ico-dark { }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 14px; margin: 0 0 30px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+.card .label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.card .value { font-size: 28px; font-weight: 660; margin-top: 5px; letter-spacing: -0.6px; }
 .card .value.warn { color: var(--warn); }
-.card .value.good { color: var(--accent); }
-.card .note { font-size: 12px; color: var(--muted); margin-top: 2px; }
-section.metric { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin-bottom: 18px; }
-section.metric h2 { margin: 0 0 2px; font-size: 18px; letter-spacing: -0.2px; }
+.card .value.good { color: var(--good); }
+.card .note { font-size: 12px; color: var(--muted); margin-top: 3px; }
+section.metric { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 18px; box-shadow: var(--shadow); }
+section.metric h2 { margin: 0 0 3px; font-size: 18px; letter-spacing: -0.2px; }
 section.metric .answers { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
-.healthy { display: inline-block; font-size: 12.5px; background: var(--accent-soft); color: var(--accent);
+.healthy { display: inline-block; font-size: 12.5px; background: var(--good-soft); color: var(--good);
   border-radius: 999px; padding: 3px 11px; margin: 0 0 14px; }
 .healthy b { font-weight: 650; }
+.table-scroll { overflow-x: auto; border-radius: 10px; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+th, td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; position: sticky; top: 0; background: var(--card); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-tbody tr:nth-child(even) { background: #fafbfc; }
+tbody tr:nth-child(even) { background: var(--row); }
+tbody tr:hover { background: var(--good-soft); }
 td.wrap-cell { white-space: normal; word-break: break-all; max-width: 460px; }
 .muted { color: var(--muted); }
 .empty { color: var(--muted); font-style: italic; font-size: 13.5px; }
-.notice { background: var(--warn-soft); border: 1px solid #f0e2c2; color: var(--warn);
+.notice { background: var(--warn-soft); border: 1px solid var(--warn-line); color: var(--warn);
   border-radius: 10px; padding: 11px 14px; font-size: 13.5px; }
-.notice code { background: rgba(154,106,18,0.13); padding: 1px 5px; border-radius: 4px; }
+.notice code { background: rgba(154,106,18,.13); padding: 1px 5px; border-radius: 4px; }
 .chart { margin: 6px 0 16px; }
 .chart svg { display: block; width: 100%; height: auto; }
+.bar-track { fill: var(--bar-track); }
+.bar-label { fill: var(--muted); }
+.bar-val { fill: var(--ink); font-weight: 600; }
+.bar--green { fill: var(--bar-green); } .bar--blue { fill: var(--bar-blue); } .bar--amber { fill: var(--bar-amber); }
 footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top: 30px; }
-footer code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; }
+footer code { background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+"""
+
+# Minimal inline theme toggle: persists choice in localStorage and falls back to
+# the OS preference. Inline (no network/CDN) so the report stays self-contained.
+_THEME_JS = """
+(function () {
+  var root = document.documentElement, KEY = "crawl-log-theme";
+  try { var saved = localStorage.getItem(KEY); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
+  function current() {
+    var t = root.getAttribute("data-theme");
+    if (t) return t;
+    return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  window.__toggleTheme = function () {
+    var next = current() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem(KEY, next); } catch (e) {}
+  };
+})();
 """
 
 
@@ -118,11 +182,19 @@ def _table(rows: list[dict]) -> str:
             cls = "num" if numeric[c] else ("wrap-cell" if wrapcol[c] else "")
             cells.append(f'<td class="{cls}">{_fmt(r.get(c))}</td>')
         body.append("<tr>" + "".join(cells) + "</tr>")
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+    return (
+        '<div class="table-scroll"><table><thead><tr>'
+        f"{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+    )
 
 
-def _svg_hbars(pairs: Sequence[tuple[str, float]], *, accent: str = "#5b8def") -> str:
-    """A horizontal bar chart as inline SVG (no JS). ``pairs`` is (label, value)."""
+def _svg_hbars(pairs: Sequence[tuple[str, float]], *, variant: str = "blue") -> str:
+    """A horizontal bar chart as inline SVG. ``pairs`` is (label, value).
+
+    Fills come from CSS classes (``bar--<variant>``, ``bar-track``, ``bar-label``,
+    ``bar-val``) so the chart follows the light/dark theme rather than baking in
+    colors. No JavaScript involved.
+    """
     pairs = [(str(lbl), float(val or 0)) for lbl, val in pairs if val is not None]
     if not pairs:
         return ""
@@ -135,12 +207,12 @@ def _svg_hbars(pairs: Sequence[tuple[str, float]], *, accent: str = "#5b8def") -
     for label, val in pairs:
         w = max(2.0, track_w * (val / maxv))
         short = label if len(label) <= 30 else label[:29] + "…"
+        num = _fmt(int(val) if float(val).is_integer() else val)
         out.append(
-            f'<text x="0" y="{y + bar_h - 6}" font-size="12.5" fill="#5b6876">{_esc(short)}</text>'
-            f'<rect x="{label_w}" y="{y}" width="{track_w}" height="{bar_h}" rx="4" fill="#eef3fd"/>'
-            f'<rect x="{label_w}" y="{y}" width="{w:.1f}" height="{bar_h}" rx="4" fill="{accent}"/>'
-            f'<text x="{label_w + track_w + 8}" y="{y + bar_h - 6}" font-size="12.5" '
-            f'fill="#1c2530" font-weight="600">{_fmt(int(val) if float(val).is_integer() else val)}</text>'
+            f'<text class="bar-label" x="0" y="{y + bar_h - 6}" font-size="12.5">{_esc(short)}</text>'
+            f'<rect class="bar-track" x="{label_w}" y="{y}" width="{track_w}" height="{bar_h}" rx="4"/>'
+            f'<rect class="bar--{variant}" x="{label_w}" y="{y}" width="{w:.1f}" height="{bar_h}" rx="4"/>'
+            f'<text class="bar-val" x="{label_w + track_w + 8}" y="{y + bar_h - 6}" font-size="12.5">{num}</text>'
         )
         y += bar_h + gap
     out.append("</svg>")
@@ -222,12 +294,13 @@ def _date_range(by: dict[str, list[dict]]) -> str:
 # --------------------------------------------------------------------------- #
 
 # Queries we render as a chart in addition to (or instead of) a raw table.
+# The third element is a CSS bar variant (green/blue/amber) so charts follow the theme.
 _CHARTS = {
-    "bytes_served": ("crawler_category", "crawls", "#2f6f4f"),
-    "crawl_trap_detection": ("prefix", "crawls", "#5b8def"),
-    "crawl_depth": ("depth", "crawls", "#5b8def"),
-    "top_parameters": ("parameter", "occurrences", "#5b8def"),
-    "redirect_404_urls": ("path", "crawls", "#9a6a12"),
+    "bytes_served": ("crawler_category", "crawls", "green"),
+    "crawl_trap_detection": ("prefix", "crawls", "blue"),
+    "crawl_depth": ("depth", "crawls", "blue"),
+    "top_parameters": ("parameter", "occurrences", "blue"),
+    "redirect_404_urls": ("path", "crawls", "amber"),
 }
 
 # How to satisfy a query whose required relation wasn't supplied. Keyed by the
@@ -283,9 +356,9 @@ def render_html(
         )
         chart = ""
         if name in _CHARTS and rows:
-            lk, vk, color = _CHARTS[name]
+            lk, vk, variant = _CHARTS[name]
             if lk in rows[0] and vk in rows[0]:
-                chart = _svg_hbars([(r.get(lk), r.get(vk)) for r in rows[:10]], accent=color)
+                chart = _svg_hbars([(r.get(lk), r.get(vk)) for r in rows[:10]], variant=variant)
         body = _table(rows) if rows else _empty_reason(name, sql)
         sections.append(
             f'<section class="metric" id="{_esc(name)}">'
@@ -300,14 +373,21 @@ def render_html(
         sub_bits.append(f"Window: {drange}")
     sub_bits.append(f"Generated {_esc(gen)}")
 
+    toggle = (
+        '<button class="toggle" type="button" onclick="__toggleTheme()" '
+        'aria-label="Toggle light or dark theme" title="Toggle light / dark">'
+        '<span aria-hidden="true">◐</span> Theme</button>'
+    )
     return (
         "<!doctype html>\n"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>Crawl-budget report</title>"
+        # Apply the saved/OS theme before paint to avoid a flash of the wrong one.
+        f"<script>{_THEME_JS}</script>"
         f"<style>{_CSS}</style></head><body>"
         '<header class="hero"><div class="wrap">'
-        "<h1>Verified crawl-budget report</h1>"
+        f'<div class="top"><h1>Verified crawl-budget report</h1>{toggle}</div>'
         f'<div class="sub">{" &nbsp;·&nbsp; ".join(sub_bits)}</div>'
         "</div></header>"
         '<div class="wrap">'

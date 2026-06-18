@@ -41,11 +41,12 @@ def test_render_html_is_self_contained_and_structured(enriched_parquet):
     doc = _render_sample(enriched_parquet)
 
     assert doc.startswith("<!doctype html>")
-    # Self-contained: inline <style>, no external scripts/styles/images.
+    # Self-contained: inline <style>, no resources fetched from the network.
     assert "<style>" in doc
-    for needle in ("<script", 'src="http', 'href="http', "cdn"):
-        assert needle not in doc.lower() or needle == "cdn"  # 'cdn' never appears
-    assert "@import" not in doc
+    for needle in ('src="http', 'href="http', "@import", "url(http", "cdn"):
+        assert needle not in doc.lower()
+    # The only <script> is inline (theme toggle) — never an external src.
+    assert "<script src" not in doc.lower()
 
     # Documents itself: titles + the "Healthy:" guidance from the query headers.
     assert "Crawl waste" in doc
@@ -56,6 +57,14 @@ def test_render_html_is_self_contained_and_structured(enriched_parquet):
     assert str(enriched_parquet) in doc
 
 
+def test_render_html_has_theme_toggle(enriched_parquet):
+    doc = _render_sample(enriched_parquet)
+    # Auto-follows OS preference, supports a forced theme, and exposes a toggle.
+    assert "prefers-color-scheme: dark" in doc
+    assert 'data-theme="dark"' in doc
+    assert "__toggleTheme()" in doc
+
+
 def test_render_html_well_formed(enriched_parquet):
     parser = _WellFormed()
     parser.feed(_render_sample(enriched_parquet))
@@ -63,9 +72,11 @@ def test_render_html_well_formed(enriched_parquet):
 
 
 def test_render_html_escapes_cell_values(enriched_parquet):
-    # Spoofer user-agents contain '<'/'&'-prone text and URLs; ensure escaping.
+    # Spoofer user-agents / encoded URLs are untrusted text and must be escaped.
     doc = _render_sample(enriched_parquet)
-    assert "<script>" not in doc.replace("<script", "X<script")  # no raw injected script
+    # The only script/style tags are our own (theme toggle + inline CSS); cell
+    # values can never introduce another one.
+    assert doc.count("<script>") == 1 and doc.count("</script>") == 1
     # Ampersands from query strings / UA must be entity-escaped, never raw " & ".
     assert " & " not in doc
 
