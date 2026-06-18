@@ -36,11 +36,15 @@ bot traffic at the edge; this repo *analyzes* logs from **any** source.
 Requires **Python 3.11+**. Runtime deps are just `duckdb` and `requests`.
 
 ```bash
-pip install -e .          # from a clone
+python3 -m venv .venv             # create an isolated environment (recommended)
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
+
+pip install -e .                  # from a clone
 # or, once published:     pip install crawl-log-toolkit
 ```
 
-This installs the `crawl-log` command.
+This installs the `crawl-log` command. Re-run `source .venv/bin/activate` in each
+new shell, or call the tools by path (e.g. `.venv/bin/crawl-log`) without it.
 
 ## 30-second demo
 
@@ -78,7 +82,8 @@ non-Google IPs — all 90 unverified lines include these), a
    access logs, skip ahead — the format is auto-detected. To emit clean logs,
    copy a `log_format` from [`log-formats/`](log-formats) (the JSON one is
    recommended; it adds `request_time` and `host`). Prefer CDN edge logs over
-   origin logs. Logs may be plain or `.gz`.
+   origin logs. The log may be a plain `.log` **or** a gzipped `.log.gz` — both
+   work, no need to unzip rotated `*.log.gz` files.
 
 3. **Sanity-check who is really a crawler** (IP-based). Refresh the published
    ranges first so verification is current:
@@ -118,7 +123,10 @@ non-Google IPs — all 90 unverified lines include these), a
 
 ## The pipeline
 
-One command per stage; all are gzip-transparent and composable over pipes.
+One command per stage, composable over pipes. **Input can be a plain `.log` or a
+gzipped `.log.gz` — it's auto-detected, so you never need to unzip first** (or
+pass `-` to read from stdin). The examples below use `.gz`, but `access.log`
+works identically.
 
 | Stage | Command | In → Out |
 |------|---------|----------|
@@ -128,7 +136,12 @@ One command per stage; all are gzip-transparent and composable over pipes.
 | **analyze** | `crawl-log analyze out.parquet --all` | Parquet → metric tables |
 
 ```bash
-# Pipe parse → enrich:
+# Plain .log works exactly the same as .gz — just point at the file:
+crawl-log verify  access.log --summary-only
+crawl-log enrich  access.log -o out.parquet
+crawl-log analyze out.parquet --all
+
+# Pipe parse → enrich (gzipped or not, your choice):
 crawl-log parse access.log.gz | crawl-log enrich --from-jsonl - -o out.parquet
 
 # Classify a single IP:
@@ -156,15 +169,31 @@ path (query stripped) · status · bytes_sent · referer · user_agent · reques
 
 A request claiming to be Googlebot is trusted **only** if its source IP is in
 Google's published ranges (or forward-confirmed reverse DNS resolves into
-`googlebot.com` / `google.com`). The toolkit ships a vendored snapshot of the
-published ranges (Googlebot, Google special crawlers, Google user-triggered
-fetchers, Bingbot) so it works offline, and refreshes from the source on a TTL:
+`googlebot.com` / `google.com`). The toolkit ships the **complete** published
+ranges (Googlebot, Google special crawlers, Google user-triggered fetchers,
+Bingbot) so verification is accurate offline out of the box, and it also
+refreshes from the source on a TTL:
 
 ```bash
 crawl-log verify access.log.gz --refresh        # fetch fresh ranges, then verify
-crawl-log verify access.log.gz --no-network      # bundled snapshot only (CI-safe)
+crawl-log verify access.log.gz --no-network      # bundled lists only (CI-safe)
 crawl-log verify access.log.gz --fcrdns          # reverse-DNS (FCrDNS) instead
 ```
+
+**Updating the ranges manually.** Published ranges change over time. `--refresh`
+updates a local TTL cache automatically, but you can also refresh the lists on
+disk yourself:
+
+```bash
+crawl-log update-ranges                 # refresh the bundled lists in place
+crawl-log update-ranges -d ./myranges   # write to a dir (read-only installs / mirrors)
+crawl-log verify access.log.gz --ranges-dir ./myranges   # use a custom list, fully offline
+```
+
+`--ranges-dir DIR` always wins and is fully offline, so an air-gapped box can run
+against a mirror you control (drop your own `googlebot.json` / `bingbot.json` /
+`special-crawlers.json` / `user-triggered-fetchers.json` there in the published
+`{"prefixes": [{"ipv4Prefix": "..."}]}` shape).
 
 Unverified traffic is kept as a **separate class** and never mixed into
 crawl-budget analysis. A Googlebot UA from a random IP is a spoofer; a Googlebot
@@ -236,10 +265,10 @@ Reference, copy-paste-and-adapt configs:
 > 1%-sampled feed is **unusable** for crawl analysis. (As of 2026, Cloudflare
 > Logpush is Business/Enterprise only; some plans sample.)
 >
-> **IP-range freshness.** Published crawler IP ranges change. The bundled
-> snapshot is for out-of-the-box use and tests — in production refresh it
-> (`crawl-log verify --refresh`, or schedule a daily fetch) so you neither miss
-> real crawlers nor trust stale ranges.
+> **IP-range freshness.** The bundled lists are complete as of the last vendor,
+> but published crawler ranges change. Keep them current with `--refresh` (TTL
+> cache) or `crawl-log update-ranges` (rewrites the lists on disk) — schedule
+> one of them so you neither miss real crawlers nor trust stale ranges.
 >
 > **PII / GDPR.** Access logs contain IP addresses (personal data in many
 > jurisdictions). Mind your retention and lawful basis; use
@@ -250,6 +279,7 @@ Reference, copy-paste-and-adapt configs:
 ## Development
 
 ```bash
+python3 -m venv .venv && source .venv/bin/activate   # if not already in a venv
 pip install -e ".[dev]"
 ruff check . && ruff format --check .
 pytest                                   # unit + end-to-end, no network
