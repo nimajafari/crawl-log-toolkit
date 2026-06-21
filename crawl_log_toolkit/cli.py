@@ -391,7 +391,18 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except BrokenPipeError:
+        # Downstream reader closed early (e.g. `crawl-log ... | head`); exit quietly.
+        return 0
+    except OSError as exc:
+        # Turn file problems (missing path, a directory, permission denied) into a
+        # one-line message instead of a traceback.
+        target = getattr(exc, "filename", None)
+        detail = exc.strerror or str(exc)
+        print(f"error: {detail}: {target}" if target else f"error: {detail}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover
