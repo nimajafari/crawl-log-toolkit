@@ -58,6 +58,24 @@ def test_analyze_list(capsys):
     assert "crawl_trap_detection" in listed
 
 
+def test_verify_directory_input_errors_cleanly(tmp_path, capsys):
+    # Passing a directory must produce a one-line error, not a traceback.
+    rc = main(["verify", str(tmp_path), "--summary-only", "--no-network"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "Traceback" not in err
+    assert str(tmp_path) in err
+
+
+def test_verify_missing_file_errors_cleanly(tmp_path, capsys):
+    rc = main(["verify", str(tmp_path / "nope.log"), "--summary-only", "--no-network"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "Traceback" not in err
+
+
 def test_pipe_parse_to_enrich_from_jsonl(tmp_path, capsys):
     # Emulate: crawl-log parse ... | crawl-log enrich --from-jsonl - -o out.parquet
     jsonl = tmp_path / "p.jsonl"
