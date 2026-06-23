@@ -149,7 +149,8 @@ def _fmt(value: object) -> str:
         return f"{value:,}"
     if isinstance(value, float):
         return f"{value:,.2f}".rstrip("0").rstrip(".") if value % 1 else f"{int(value):,}"
-    return _esc(value)
+    # Newlines in a cell (e.g. multiple example URLs) become real line breaks.
+    return _esc(value).replace("\n", "<br>")
 
 
 def _rows_by_name(results: Iterable[tuple[str, list[dict]]]) -> dict[str, list[dict]]:
